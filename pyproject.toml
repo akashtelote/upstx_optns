@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12.7"
 dependencies = [
     "backtrader2>=1.9.76.123",
+    "filelock>=3.28.0",
     "pandas>=3.0.2",
     "python-dotenv>=1.2.2",
     "requests>=2.33.1",
