@@ -6,8 +6,11 @@ readme = "README.md"
 requires-python = ">=3.12.7"
 dependencies = [
     "backtrader2>=1.9.76.123",
+    "fake-useragent>=2.2.0",
     "filelock>=3.28.0",
+    "jugaad-data>=0.33.1",
     "pandas>=3.0.2",
+    "playwright>=1.58.0",
     "python-dotenv>=1.2.2",
     "requests>=2.33.1",
     "upstox-python-sdk>=2.22.0",
