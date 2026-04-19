@@ -1,0 +1,26 @@
+name: Auto Merge to Main
+
+on:
+  push:
+    branches-ignore:
+      - main  # Prevent infinite loops when main itself is updated
+
+jobs:
+  merge-to-main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetches all history so we can merge properly
+
+      - name: Set up Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge current branch into main
+        run: |
+          git checkout main
+          git merge ${{ github.ref_name }} --no-ff --commit -m "Auto-merge branch ${{ github.ref_name }} to main"
+          git push origin main
