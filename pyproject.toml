@@ -11,6 +11,7 @@ dependencies = [
     "jugaad-data>=0.33.1",
     "pandas>=3.0.2",
     "playwright>=1.58.0",
+    "pyarrow>=24.0.0",
     "python-dotenv>=1.2.2",
     "requests>=2.33.1",
     "upstox-python-sdk>=2.22.0",
