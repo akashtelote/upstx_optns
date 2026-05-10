@@ -16,7 +16,7 @@ class TrendStrategy(BaseStrategy):
 
         self.fast_ma = bt.indicators.SMA(period=self.p.fast_ma)
         self.slow_ma = bt.indicators.SMA(period=self.p.slow_ma)
-        self.rsi = bt.indicators.RSI_SMA(period=self.p.rsi_period)
+        self.rsi = bt.indicators.RSI_SMA(period=self.p.rsi_period, safediv=True)
         self.crossover = bt.indicators.CrossOver(self.fast_ma, self.slow_ma)
 
     def next(self):
