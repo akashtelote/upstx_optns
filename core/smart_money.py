@@ -3,10 +3,13 @@ import json
 import io
 import datetime
 import requests
+import logging
 import pandas as pd
 import yfinance as yf
-from filelock import FileLock
+from filelock import FileLock, Timeout
 from core.loader import get_nifty500_tickers
+
+logger = logging.getLogger(__name__)
 
 # Optional imports for fallback mechanisms
 try:
@@ -33,7 +36,7 @@ class SmartMoneyFilter:
 
     def __init__(self, metadata_path: str = "data/equity_metadata.json"):
         self.metadata_path = metadata_path
-        self.metadata_lock = FileLock(f"{self.metadata_path}.lock")
+        self.metadata_lock = FileLock(f"{self.metadata_path}.lock", timeout=5)
         self.metadata = {}
         self._cached_deals = None
 
@@ -71,30 +74,41 @@ class SmartMoneyFilter:
         needs_refresh = True
         today = datetime.datetime.now()
 
-        with self.metadata_lock:
-            if os.path.exists(self.metadata_path):
-                file_mtime = datetime.datetime.fromtimestamp(os.path.getmtime(self.metadata_path))
-                age_days = (today - file_mtime).days
+        try:
+            with self.metadata_lock:
+                if os.path.exists(self.metadata_path):
+                    file_mtime = datetime.datetime.fromtimestamp(os.path.getmtime(self.metadata_path))
+                    age_days = (today - file_mtime).days
 
-                # Check refresh conditions
-                if age_days < 7 and today.weekday() != 6: # 6 is Sunday
-                    needs_refresh = False
-                    with open(self.metadata_path, 'r') as f:
-                        try:
+                    # Check refresh conditions
+                    if age_days < 7 and today.weekday() != 6: # 6 is Sunday
+                        needs_refresh = False
+                        with open(self.metadata_path, 'r') as f:
+                            try:
+                                self.metadata = json.load(f)
+                            except json.JSONDecodeError:
+                                needs_refresh = True
+
+                if needs_refresh:
+                    self._refresh_metadata()
+        except Timeout:
+            logger.warning("Metadata cache is locked. Could not acquire lock within timeout.")
+            if not self.metadata:
+                logger.info("Attempting read-only fallback since metadata is empty.")
+                if os.path.exists(self.metadata_path):
+                    try:
+                        with open(self.metadata_path, 'r') as f:
                             self.metadata = json.load(f)
-                        except json.JSONDecodeError:
-                            needs_refresh = True
-
-            if needs_refresh:
-                self._refresh_metadata()
+                    except Exception as e:
+                        logger.error(f"Read-only fallback failed: {e}")
 
     def _refresh_metadata(self):
         """Fetches Nifty 500 metadata from yfinance and caches it."""
-        print("Refreshing equity metadata cache...")
+        logger.info("Refreshing equity metadata cache...")
         tickers = get_nifty500_tickers()
 
         if not tickers:
-            print("Failed to fetch Nifty 500 tickers for metadata refresh.")
+            logger.error("Failed to fetch Nifty 500 tickers for metadata refresh.")
             return
 
         # Add .NS suffix for yfinance
@@ -123,12 +137,12 @@ class SmartMoneyFilter:
                 os.makedirs(os.path.dirname(self.metadata_path), exist_ok=True)
                 with open(self.metadata_path, 'w') as f:
                     json.dump(new_metadata, f, indent=4)
-                print(f"Successfully refreshed metadata for {len(new_metadata)} tickers.")
+                logger.info(f"Successfully refreshed metadata for {len(new_metadata)} tickers.")
             else:
-                print("Failed to refresh any ticker metadata.")
+                logger.warning("Failed to refresh any ticker metadata.")
 
         except Exception as e:
-            print(f"Error refreshing metadata: {e}")
+            logger.error(f"Error refreshing metadata: {e}")
 
     def _fetch_deals_jugaad(self, date_obj: datetime.date) -> pd.DataFrame:
         """Attempt to fetch deals using jugaad-data."""
@@ -142,14 +156,14 @@ class SmartMoneyFilter:
             if bulk:
                 dfs.append(pd.DataFrame(bulk))
         except Exception as e:
-            print(f"jugaad bulk fetch failed: {e}")
+            logger.warning(f"jugaad bulk fetch failed: {e}")
 
         try:
             block = block_deals(date_obj, date_obj)
             if block:
                 dfs.append(pd.DataFrame(block))
         except Exception as e:
-            print(f"jugaad block fetch failed: {e}")
+            logger.warning(f"jugaad block fetch failed: {e}")
 
         if dfs:
             return pd.concat(dfs, ignore_index=True)
@@ -178,7 +192,7 @@ class SmartMoneyFilter:
                 else:
                     raise Exception(f"HTTP Status {response.status_code}")
             except Exception as e:
-                print(f"HTTP fetch failed for {url}: {e}")
+                logger.warning(f"HTTP fetch failed for {url}: {e}")
                 raise
 
         if dfs:
@@ -247,10 +261,7 @@ asyncio.run(fetch())
                 return pd.concat(dfs, ignore_index=True)
             return pd.DataFrame()
         except Exception as e:
-            print(f"Playwright fetch failed: {e}")
-            return pd.DataFrame()
-        except Exception as e:
-            print(f"Playwright fetch failed: {e}")
+            logger.warning(f"Playwright fetch failed: {e}")
             return pd.DataFrame()
 
     def _is_institutional(self, client_name: str) -> bool:
@@ -269,7 +280,7 @@ asyncio.run(fetch())
         deals_df = self.get_deals()
 
         if deals_df.empty:
-            print("No deals found for the target date.")
+            logger.info("No deals found for the target date.")
             return {}
 
         # Standardize columns: strip and uppercase
@@ -282,7 +293,7 @@ asyncio.run(fetch())
         qty_col = next((c for c in deals_df.columns if 'QUANTITY' in c or 'QTY' in c), None)
 
         if not all([symbol_col, client_col, bs_col, qty_col]):
-            print(f"Could not map required columns. Found: {deals_df.columns.tolist()}")
+            logger.warning(f"Could not map required columns. Found: {deals_df.columns.tolist()}")
             return {}
 
         whale_scores = {}
@@ -324,7 +335,7 @@ asyncio.run(fetch())
         with open("data/whale_scores.json", "w") as f:
             json.dump(whale_scores, f, indent=4)
 
-        print(f"Processed smart money. Found {len(whale_scores)} whales.")
+        logger.info(f"Processed smart money. Found {len(whale_scores)} whales.")
         return whale_scores
 
     def get_deals(self) -> pd.DataFrame:
@@ -335,12 +346,13 @@ asyncio.run(fetch())
         target_date = self._get_last_trading_day()
 
         # 1. Try jugaad-data (Currently known to have issues, but keeping as stage 1)
-        try:
-            df = self._fetch_deals_jugaad(target_date)
-            if not df.empty:
-                return df
-        except Exception:
-            pass
+        # Temporarily disabled due to NSE blocking/hanging issues
+        # try:
+        #     df = self._fetch_deals_jugaad(target_date)
+        #     if not df.empty:
+        #         return df
+        # except Exception:
+        #     pass
 
         # 2. Try Direct HTTP
         try:
