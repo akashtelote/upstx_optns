@@ -1,8 +1,12 @@
 import argparse
 import logging
+import sys
+import backtrader as bt
+import pandas as pd
 from core.auth import authenticate_and_save_token
 from tools.download_data import download_nifty_data
 from core.smart_money import SmartMoneyFilter
+from strategies.trend_strategy import TrendStrategy
 
 # Basic logging configuration for all core modules
 logging.basicConfig(
@@ -14,8 +18,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def run_backtest():
-    """Placeholder function for the backtest module."""
-    print('Backtesting module initializing...')
+    """Run the Backtrader backtest logic."""
+    logger.info('Backtesting module initializing...')
+
+    try:
+        df = pd.read_parquet('data/nifty50_historical.parquet')
+    except FileNotFoundError:
+        logger.error("Historical data not found. Please run the 'download' command first: python main.py download")
+        sys.exit(1)
+
+    data = bt.feeds.PandasData(dataname=df)
+
+    cerebro = bt.Cerebro()
+    cerebro.adddata(data)
+    cerebro.addstrategy(TrendStrategy)
+
+    cerebro.broker.setcash(100000.0)
+
+    logger.info(f"Starting Portfolio Value: {cerebro.broker.getvalue():.2f}")
+    cerebro.run()
+    logger.info(f"Final Portfolio Value: {cerebro.broker.getvalue():.2f}")
 
 def main():
     parser = argparse.ArgumentParser(description="Indian Trading Bot - Unified CLI")
