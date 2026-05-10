@@ -253,6 +253,80 @@ asyncio.run(fetch())
             print(f"Playwright fetch failed: {e}")
             return pd.DataFrame()
 
+    def _is_institutional(self, client_name: str) -> bool:
+        """Checks if a client name matches any of the institutional keywords."""
+        if not client_name or pd.isna(client_name):
+            return False
+        client_name_upper = str(client_name).upper()
+        return any(keyword in client_name_upper for keyword in self.INSTITUTIONAL_KEYWORDS)
+
+    def process_smart_money(self) -> dict:
+        """
+        Calculates whale scores for all symbols based on institutional net buying.
+        Saves the results to data/whale_scores.json and returns the dictionary.
+        """
+        self._ensure_metadata_cache()
+        deals_df = self.get_deals()
+
+        if deals_df.empty:
+            print("No deals found for the target date.")
+            return {}
+
+        # Standardize columns: strip and uppercase
+        deals_df.columns = [str(c).strip().upper() for c in deals_df.columns]
+
+        # Find exact columns
+        symbol_col = next((c for c in deals_df.columns if 'SYMBOL' in c), None)
+        client_col = next((c for c in deals_df.columns if 'CLIENT' in c), None)
+        bs_col = next((c for c in deals_df.columns if 'BUY' in c or 'SELL' in c or 'REMARKS' in c), None)
+        qty_col = next((c for c in deals_df.columns if 'QUANTITY' in c or 'QTY' in c), None)
+
+        if not all([symbol_col, client_col, bs_col, qty_col]):
+            print(f"Could not map required columns. Found: {deals_df.columns.tolist()}")
+            return {}
+
+        whale_scores = {}
+        grouped = deals_df.groupby(symbol_col)
+
+        for symbol, group in grouped:
+            # Handle float or other non-string symbols safely
+            symbol_str = str(symbol).strip()
+
+            metadata = self.metadata.get(symbol_str)
+            if not metadata or 'sharesOutstanding' not in metadata:
+                continue
+
+            shares_outstanding = metadata['sharesOutstanding']
+            if not shares_outstanding or shares_outstanding <= 0:
+                continue
+
+            net_buying = 0
+            for _, row in group.iterrows():
+                client_name = row[client_col]
+                if self._is_institutional(client_name):
+                    try:
+                        qty = float(str(row[qty_col]).replace(',', ''))
+                    except ValueError:
+                        qty = 0
+
+                    bs_action = str(row[bs_col]).strip().upper()
+                    if 'BUY' in bs_action:
+                        net_buying += qty
+                    elif 'SELL' in bs_action:
+                        net_buying -= qty
+
+            if net_buying > 0:
+                pct_bought = (net_buying / shares_outstanding) * 100
+                if pct_bought > 0.5:
+                    whale_scores[symbol_str] = 1
+
+        os.makedirs("data", exist_ok=True)
+        with open("data/whale_scores.json", "w") as f:
+            json.dump(whale_scores, f, indent=4)
+
+        print(f"Processed smart money. Found {len(whale_scores)} whales.")
+        return whale_scores
+
     def get_deals(self) -> pd.DataFrame:
         """Fetches deals using the multi-stage fallback."""
         if self._cached_deals is not None:
