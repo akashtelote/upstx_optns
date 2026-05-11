@@ -1,6 +1,9 @@
 import argparse
 import logging
 import sys
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 import backtrader as bt
 import pandas as pd
 from core.auth import authenticate_and_save_token
@@ -35,9 +38,45 @@ def run_backtest():
 
     cerebro.broker.setcash(100000.0)
 
+    # Position Sizer
+    cerebro.addsizer(bt.sizers.PercentSizer, percents=95)
+
+    # Analyzers
+    cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
+    cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
+
     logger.info(f"Starting Portfolio Value: {cerebro.broker.getvalue():.2f}")
-    cerebro.run()
+    results = cerebro.run()
     logger.info(f"Final Portfolio Value: {cerebro.broker.getvalue():.2f}")
+
+    # Extract metrics
+    strat = results[0]
+    trades_analyzer = strat.analyzers.trades.get_analysis()
+    drawdown_analyzer = strat.analyzers.drawdown.get_analysis()
+
+    total_open = trades_analyzer.total.open if 'total' in trades_analyzer and 'open' in trades_analyzer.total else 0
+    total_closed = trades_analyzer.total.closed if 'total' in trades_analyzer and 'closed' in trades_analyzer.total else 0
+    won_trades = trades_analyzer.won.total if 'won' in trades_analyzer and 'total' in trades_analyzer.won else 0
+    max_drawdown = drawdown_analyzer.max.drawdown if 'max' in drawdown_analyzer and 'drawdown' in drawdown_analyzer.max else 0.0
+
+    if total_closed > 0:
+        win_rate = f"{(won_trades / total_closed * 100):.2f}%"
+    else:
+        win_rate = "N/A"
+
+    logger.info(f"Total Open Trades: {total_open}")
+    logger.info(f"Total Closed Trades: {total_closed}")
+    logger.info(f"Win Rate: {win_rate}")
+    logger.info(f"Maximum Drawdown: {max_drawdown:.2f}%")
+
+    # Save visual chart to data/ directory
+    try:
+        figs = cerebro.plot(style='candlestick', barup='green', bardown='red')
+        if figs and len(figs) > 0 and len(figs[0]) > 0:
+            figs[0][0].savefig('data/backtest_chart.png')
+            logger.info("Saved backtest chart to data/backtest_chart.png")
+    except Exception as e:
+        logger.warning(f"Could not save backtest chart due to upstream dependency compatibility: {e}")
 
 def main():
     parser = argparse.ArgumentParser(description="Indian Trading Bot - Unified CLI")
