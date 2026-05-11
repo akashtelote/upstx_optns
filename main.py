@@ -10,6 +10,7 @@ from core.auth import authenticate_and_save_token
 from tools.download_data import download_nifty_data
 from core.smart_money import SmartMoneyFilter
 from strategies.trend_strategy import TrendStrategy
+from tools.optimize_strategy import run_optimization
 
 # Basic logging configuration for all core modules
 logging.basicConfig(
@@ -108,6 +109,9 @@ def main():
     # Subcommand: backtest
     backtest_parser = subparsers.add_parser("backtest", help="Run backtesting strategy")
 
+    # Subcommand: optimize
+    optimize_parser = subparsers.add_parser("optimize", help="Optimize backtesting strategy parameters")
+
     args = parser.parse_args()
 
     if args.command == "auth":
@@ -123,6 +127,9 @@ def main():
     elif args.command == "backtest":
         logger.info("Executing backtest command...")
         run_backtest()
+    elif args.command == "optimize":
+        logger.info("Executing optimize command...")
+        run_optimization()
 
 if __name__ == "__main__":
     main()
