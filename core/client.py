@@ -73,3 +73,9 @@ class UpstoxClient:
         if cls._api_client is None or cls._order_api is None:
             cls.initialize_client()
         return cls._api_client, cls._order_api
+
+    def place_order(self, symbol: str, side: str, quantity: int, price: float):
+        """
+        Placeholder method to route paper trades.
+        """
+        logger.info(f"Successfully routed PAPER trade: {side} {quantity} {symbol} @ ₹{price}")

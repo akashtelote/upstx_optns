@@ -11,6 +11,7 @@ from tools.download_data import download_nifty_data
 from core.smart_money import SmartMoneyFilter
 from strategies.trend_strategy import TrendStrategy
 from tools.optimize_strategy import run_optimization
+from core.client import UpstoxClient
 
 # Basic logging configuration for all core modules
 logging.basicConfig(
@@ -79,6 +80,12 @@ def run_backtest():
     except Exception as e:
         logger.warning(f"Could not save backtest chart due to upstream dependency compatibility: {e}")
 
+def run_paper_trade(args):
+    """Run a simulated paper trade."""
+    logger.info(f"Initiating paper trade for {args.quantity} shares of {args.symbol} at ₹{args.price}...")
+    client = UpstoxClient()
+    client.place_order(args.symbol, args.side, args.quantity, args.price)
+
 def main():
     parser = argparse.ArgumentParser(description="Indian Trading Bot - Unified CLI")
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
@@ -112,6 +119,13 @@ def main():
     # Subcommand: optimize
     optimize_parser = subparsers.add_parser("optimize", help="Optimize backtesting strategy parameters")
 
+    # Subcommand: paper
+    paper_parser = subparsers.add_parser("paper", help="Run a simulated paper trade")
+    paper_parser.add_argument("symbol", type=str, help="Trading symbol (e.g., RELIANCE)")
+    paper_parser.add_argument("side", type=str, choices=["BUY", "SELL"], help="Order side (BUY/SELL)")
+    paper_parser.add_argument("quantity", type=int, help="Quantity to trade")
+    paper_parser.add_argument("price", type=float, help="Order price")
+
     args = parser.parse_args()
 
     if args.command == "auth":
@@ -130,6 +144,9 @@ def main():
     elif args.command == "optimize":
         logger.info("Executing optimize command...")
         run_optimization()
+    elif args.command == "paper":
+        logger.info("Executing paper command...")
+        run_paper_trade(args)
 
 if __name__ == "__main__":
     main()
