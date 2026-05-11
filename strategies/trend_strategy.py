@@ -3,7 +3,7 @@ from strategies.base_strategy import BaseStrategy
 
 class TrendStrategy(BaseStrategy):
     params = (
-        ('fast_ma', 20),
+        ('fast_ma', 10),
         ('slow_ma', 50),
         ('rsi_period', 14),
         ('trail_percent', 0.02),
