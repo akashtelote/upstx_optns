@@ -1,9 +1,8 @@
 import logging
-import urllib3
-from urllib3.util.retry import Retry
-import upstox_client
+import os
+import json
+import requests
 
-from config.settings import CONNECTION_TIMEOUT, READ_TIMEOUT
 from core.auth import authenticate_and_save_token
 
 logger = logging.getLogger(__name__)
@@ -20,62 +19,70 @@ def fetch_data_safe(func, *args, **kwargs):
         return None
 
 class UpstoxClient:
-    _api_client = None
-    _order_api = None
-
-    @classmethod
-    def initialize_client(cls, force_refresh: bool = False):
+    def __init__(self):
         """
-        Initializes the Upstox API client, reloads the token if missing or expired,
-        and configures the Retry strategy and timeouts.
+        Initializes the Upstox API client by loading the access token.
+        If the token file is missing or invalid, it triggers authentication.
         """
-        logger.info("Initializing Upstox API client...")
-        access_token = authenticate_and_save_token(force_refresh=force_refresh)
+        self.access_token = None
+        token_file = "config/token.json"
 
-        # Set API configuration
-        configuration = upstox_client.Configuration()
-        configuration.access_token = access_token
+        try:
+            if os.path.exists(token_file):
+                with open(token_file, "r") as f:
+                    token_data = json.load(f)
+                    self.access_token = token_data.get("access_token")
 
-        # Initialize the API client
-        cls._api_client = upstox_client.ApiClient(configuration)
+            if not self.access_token:
+                logger.info("Access token missing or invalid. Triggering authentication.")
+                self.access_token = authenticate_and_save_token(force_refresh=False)
 
-        # Configure retry strategy and inject custom PoolManager
-        retry_strategy = Retry(
-            total=3,
-            backoff_factor=1,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "PUT", "DELETE", "OPTIONS", "TRACE", "POST"]
-        )
+        except (json.JSONDecodeError, IOError) as e:
+            logger.warning(f"Failed to read token file: {e}. Triggering authentication.")
+            self.access_token = authenticate_and_save_token(force_refresh=False)
 
-        timeout = urllib3.Timeout(connect=CONNECTION_TIMEOUT, read=READ_TIMEOUT)
-
-        pool_manager = urllib3.PoolManager(
-            num_pools=10,
-            maxsize=10,
-            block=False,
-            retries=retry_strategy,
-            timeout=timeout
-        )
-
-        # Injecting custom PoolManager to upstox_client.ApiClient's rest_client
-        cls._api_client.rest_client.pool_manager = pool_manager
-
-        # Initialize Order API
-        cls._order_api = upstox_client.OrderApi(cls._api_client)
-        logger.info("Upstox API client initialized successfully.")
-
-    @classmethod
-    def get_client(cls):
+    def _get_instrument_token(self, symbol: str) -> str:
         """
-        Returns the API client and Order API instances.
-        Triggers initialization if they are missing.
+        Helper method to get instrument token. Currently returns a mock value.
+        Will be replaced with real database lookup later.
         """
-        if cls._api_client is None or cls._order_api is None:
-            cls.initialize_client()
-        return cls._api_client, cls._order_api
+        return f"NSE_EQ|{symbol}"
 
-    def place_order(self, symbol: str, side: str, quantity: int, price: float):
+    def place_order(self, symbol: str, side: str, quantity: int, price: float, is_live: bool = False):
         """
-        Placeholder method to route paper trades.
+        Places an order or routes a paper trade.
         """
-        logger.info(f"Successfully routed PAPER trade: {side} {quantity} {symbol} @ ₹{price}")
+        if not is_live:
+            logger.info(f"Successfully routed PAPER trade: {side} {quantity} {symbol} @ ₹{price}")
+            return "PAPER_ORDER_123"
+
+        url = "https://api.upstox.com/v2/order/place"
+
+        headers = {
+            'Authorization': f'Bearer {self.access_token}',
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+        }
+
+        payload = {
+            "quantity": quantity,
+            "product": "DELIVERY",
+            "validity": "DAY",
+            "price": price,
+            "instrument_token": self._get_instrument_token(symbol),
+            "order_type": "LIMIT",
+            "transaction_type": side.upper()
+        }
+
+        try:
+            response = requests.post(url, headers=headers, json=payload)
+            if response.status_code != 200:
+                logger.error(f"Upstox API Error: {response.text}")
+                return None
+
+            data = response.json()
+            return data.get("data", {}).get("order_id")
+
+        except Exception as e:
+            logger.error(f"Exception during live order placement: {e}")
+            return None
