@@ -25,7 +25,7 @@ class UpstoxClient:
         If the token file is missing or invalid, it triggers authentication.
         """
         self.access_token = None
-        token_file = "config/token.json"
+        token_file = "data/token.json"
 
         try:
             if os.path.exists(token_file):
@@ -73,6 +73,9 @@ class UpstoxClient:
             "order_type": "LIMIT",
             "transaction_type": side.upper()
         }
+
+        logger.info(f"DEBUG - Token snippet: {str(self.access_token)[:15]}...")
+        logger.info(f"DEBUG - Auth Header: {headers.get('Authorization')}")
 
         try:
             response = requests.post(url, headers=headers, json=payload)
