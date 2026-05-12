@@ -88,7 +88,13 @@ def run_trade(args):
         logger.info(f"Initiating paper trade for {args.quantity} shares of {args.symbol} at ₹{args.price}...")
 
     client = UpstoxClient()
-    client.place_order(args.symbol, args.side, args.quantity, args.price, is_live=args.live)
+    order_id = client.place_order(args.symbol, args.side, args.quantity, args.price, is_live=args.live)
+
+    if order_id:
+        if args.live:
+            logger.info(f"Successfully routed LIVE trade. Upstox Order ID: {order_id}")
+        else:
+            logger.info(f"Successfully routed PAPER trade. Mock Order ID: {order_id}")
 
 def main():
     parser = argparse.ArgumentParser(description="Indian Trading Bot - Unified CLI")
