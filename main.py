@@ -12,6 +12,7 @@ from core.smart_money import SmartMoneyFilter
 from strategies.trend_strategy import TrendStrategy
 from tools.optimize_strategy import run_optimization
 from core.client import UpstoxClient
+from core.scheduler import start_scheduler
 
 # Basic logging configuration for all core modules
 logging.basicConfig(
@@ -137,6 +138,10 @@ def main():
     trade_parser.add_argument("price", type=float, help="Order price")
     trade_parser.add_argument("--live", action="store_true", help="Execute a REAL trade on the Upstox exchange")
 
+    # Subcommand: start
+    start_parser = subparsers.add_parser("start", help="Start the daily scheduler")
+    start_parser.add_argument("--live", action="store_true", help="Run the scheduled bot in REAL live trading mode")
+
     args = parser.parse_args()
 
     if args.command == "auth":
@@ -158,6 +163,9 @@ def main():
     elif args.command == "trade":
         logger.info("Executing trade command...")
         run_trade(args)
+    elif args.command == "start":
+        logger.info("Executing start command...")
+        start_scheduler(args.live)
 
 if __name__ == "__main__":
     main()
