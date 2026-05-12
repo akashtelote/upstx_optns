@@ -2,6 +2,11 @@ import logging
 import os
 import json
 import requests
+import time
+import gzip
+import io
+import pandas as pd
+from filelock import FileLock, Timeout
 
 from core.auth import authenticate_and_save_token
 
@@ -41,12 +46,70 @@ class UpstoxClient:
             logger.warning(f"Failed to read token file: {e}. Triggering authentication.")
             self.access_token = authenticate_and_save_token(force_refresh=False)
 
-    def _get_instrument_token(self, symbol: str) -> str:
+    def _get_instrument_token(self, symbol: str) -> str | None:
         """
-        Helper method to get instrument token. Currently returns a mock value.
-        Will be replaced with real database lookup later.
+        Looks up the real instrument token from the Upstox NSE equities master file.
+        Caches the file locally for 24 hours.
         """
-        return f"NSE_EQ|{symbol}"
+        csv_path = "data/nse_instruments.csv"
+        lock_path = "data/nse_instruments.csv.lock"
+        url = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.csv.gz"
+
+        # Check if file exists and is less than 24 hours old
+        is_stale = True
+        if os.path.exists(csv_path):
+            file_age = time.time() - os.path.getmtime(csv_path)
+            if file_age < 86400:  # 24 hours in seconds
+                is_stale = False
+
+        if is_stale:
+            try:
+                # Use file lock to prevent race conditions during download
+                with FileLock(lock_path, timeout=10):
+                    # Recheck staleness inside lock in case another process just updated it
+                    if os.path.exists(csv_path):
+                        file_age = time.time() - os.path.getmtime(csv_path)
+                        if file_age < 86400:
+                            is_stale = False
+
+                    if is_stale:
+                        logger.info("Downloading Upstox NSE instruments master file...")
+                        response = requests.get(url, timeout=15)
+                        response.raise_for_status()
+
+                        # Decompress and save
+                        with gzip.GzipFile(fileobj=io.BytesIO(response.content)) as gz:
+                            with open(csv_path, 'wb') as f:
+                                f.write(gz.read())
+                        logger.info("Successfully downloaded and saved nse_instruments.csv")
+            except Timeout:
+                logger.warning("Timeout acquiring lock for nse_instruments.csv. Will try to use existing file if available.")
+            except Exception as e:
+                logger.error(f"Failed to download or save NSE instruments file: {e}")
+                if not os.path.exists(csv_path):
+                    return None
+
+        if not os.path.exists(csv_path):
+            logger.error("NSE instruments file not found and could not be downloaded.")
+            return None
+
+        try:
+            # Read CSV and standardize
+            df = pd.read_csv(csv_path)
+            df.columns = df.columns.str.strip().str.lower()
+
+            # Look up the symbol
+            match = df[df['tradingsymbol'] == symbol]
+            if match.empty:
+                logger.error(f"Symbol '{symbol}' not found in instruments master.")
+                return None
+
+            instrument_key = str(match.iloc[0]['instrument_key'])
+            return instrument_key
+
+        except Exception as e:
+            logger.error(f"Error parsing or reading NSE instruments file: {e}")
+            return None
 
     def place_order(self, symbol: str, side: str, quantity: int, price: float, is_live: bool = False):
         """
