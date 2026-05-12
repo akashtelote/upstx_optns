@@ -80,11 +80,15 @@ def run_backtest():
     except Exception as e:
         logger.warning(f"Could not save backtest chart due to upstream dependency compatibility: {e}")
 
-def run_paper_trade(args):
-    """Run a simulated paper trade."""
-    logger.info(f"Initiating paper trade for {args.quantity} shares of {args.symbol} at ₹{args.price}...")
+def run_trade(args):
+    """Run a simulated paper trade or live trade."""
+    if args.live:
+        logger.warning("WARNING: INITIATING LIVE EXCHANGE ORDER!")
+    else:
+        logger.info(f"Initiating paper trade for {args.quantity} shares of {args.symbol} at ₹{args.price}...")
+
     client = UpstoxClient()
-    client.place_order(args.symbol, args.side, args.quantity, args.price)
+    client.place_order(args.symbol, args.side, args.quantity, args.price, is_live=args.live)
 
 def main():
     parser = argparse.ArgumentParser(description="Indian Trading Bot - Unified CLI")
@@ -119,12 +123,13 @@ def main():
     # Subcommand: optimize
     optimize_parser = subparsers.add_parser("optimize", help="Optimize backtesting strategy parameters")
 
-    # Subcommand: paper
-    paper_parser = subparsers.add_parser("paper", help="Run a simulated paper trade")
-    paper_parser.add_argument("symbol", type=str, help="Trading symbol (e.g., RELIANCE)")
-    paper_parser.add_argument("side", type=str, choices=["BUY", "SELL"], help="Order side (BUY/SELL)")
-    paper_parser.add_argument("quantity", type=int, help="Quantity to trade")
-    paper_parser.add_argument("price", type=float, help="Order price")
+    # Subcommand: trade
+    trade_parser = subparsers.add_parser("trade", help="Run a simulated paper trade or live trade")
+    trade_parser.add_argument("symbol", type=str, help="Trading symbol (e.g., RELIANCE)")
+    trade_parser.add_argument("side", type=str, choices=["BUY", "SELL"], help="Order side (BUY/SELL)")
+    trade_parser.add_argument("quantity", type=int, help="Quantity to trade")
+    trade_parser.add_argument("price", type=float, help="Order price")
+    trade_parser.add_argument("--live", action="store_true", help="Execute a REAL trade on the Upstox exchange")
 
     args = parser.parse_args()
 
@@ -144,9 +149,9 @@ def main():
     elif args.command == "optimize":
         logger.info("Executing optimize command...")
         run_optimization()
-    elif args.command == "paper":
-        logger.info("Executing paper command...")
-        run_paper_trade(args)
+    elif args.command == "trade":
+        logger.info("Executing trade command...")
+        run_trade(args)
 
 if __name__ == "__main__":
     main()
