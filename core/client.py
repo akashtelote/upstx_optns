@@ -66,9 +66,10 @@ class UpstoxClient:
 
         payload = {
             "quantity": quantity,
-            "product": "DELIVERY",
+            "product": "D",
             "validity": "DAY",
             "price": price,
+            "trigger_price": 0.0,
             "instrument_token": self._get_instrument_token(symbol),
             "order_type": "LIMIT",
             "transaction_type": side.upper()
